@@ -1,0 +1,806 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SGA - Sistema de Gestión de Activos</title>
+    
+    <!-- 1. Estilos -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- 2. React y ReactDOM -->
+    <script crossorigin src="https://unpkg.com/react@18.2.0/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18.2.0/umd/react-dom.production.min.js"></script>
+    
+    <!-- 3. Prop-types -->
+    <script crossorigin src="https://unpkg.com/prop-types@15.8.1/prop-types.min.js"></script>
+    
+    <!-- 4. Recharts -->
+    <script crossorigin src="https://unpkg.com/recharts@2.10.3/umd/Recharts.js"></script>
+    
+    <!-- 5. Babel -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <style>
+        ::-webkit-scrollbar { width: 10px; }
+        ::-webkit-scrollbar-track { background: #f1f5f9; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 5px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        
+        .sticky-header th {
+            position: sticky;
+            top: 0;
+            z-index: 40; /* Z-index menor que el dropdown */
+            background-color: #f8fafc;
+            box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+        }
+
+        @media print {
+            @page { margin: 0.5cm; size: landscape; }
+            body { background-color: white; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+            .no-print { display: none !important; }
+            .shadow-md, .shadow-lg, .shadow-xl { box-shadow: none !important; border: 1px solid #e2e8f0; }
+            .sticky-header th { position: static; }
+            .overflow-x-auto, .overflow-auto { overflow: visible !important; height: auto !important; max-height: none !important; }
+            /* Resetear alturas mínimas */
+            .min-h-screen, .min-h-\[400px\], .min-h-\[380px\] { min-height: auto !important; }
+            .recharts-wrapper { margin: 0 auto; }
+            tr { break-inside: avoid; page-break-inside: avoid; }
+            .print-block { display: block !important; }
+            /* Ajustes específicos para gráficos en impresión */
+            .print-chart-height { height: 200px !important; } 
+        }
+    </style>
+    
+    <script>
+        window.process = { env: { NODE_ENV: 'production' } };
+    </script>
+</head>
+<body class="bg-slate-100 text-slate-800">
+    <div id="root">
+        <div class="min-h-screen flex items-center justify-center">
+            <div class="animate-pulse text-indigo-600 font-bold">Cargando SGA...</div>
+        </div>
+    </div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useMemo, useRef } = React;
+        const { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend, BarChart, Bar, XAxis, YAxis, CartesianGrid } = window.Recharts || {};
+
+        // --- ICONOS ---
+        const Icon = ({ children, className = "", size = 24, ...props }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} {...props}>{children}</svg>
+        );
+
+        const Icons = {
+            PieChart: (props) => <Icon {...props}><path d="M21.21 15.89A10 10 0 1 1 8 2.83"/><path d="M22 12A10 10 0 0 0 12 2v10z"/></Icon>,
+            BarChart3: (props) => <Icon {...props}><path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></Icon>,
+            List: (props) => <Icon {...props}><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></Icon>,
+            Upload: (props) => <Icon {...props}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></Icon>,
+            RefreshCw: (props) => <Icon {...props}><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></Icon>,
+            Check: (props) => <Icon {...props}><polyline points="20 6 9 17 4 12"/></Icon>,
+            ChevronDown: (props) => <Icon {...props}><polyline points="6 9 12 15 18 9"/></Icon>,
+            ArrowDown: (props) => <Icon {...props}><line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/></Icon>,
+            Calculator: (props) => <Icon {...props}><rect x="4" y="2" width="16" height="20" rx="2"/><line x1="8" y1="6" x2="16" y2="6"/><line x1="16" y1="14" x2="16" y2="14"/><line x1="12" y1="14" x2="12" y2="14"/><line x1="8" y1="14" x2="8" y2="14"/><line x1="16" y1="18" x2="16" y2="18"/><line x1="12" y1="18" x2="12" y2="18"/><line x1="8" y1="18" x2="8" y2="18"/></Icon>,
+            TrendingUp: (props) => <Icon {...props}><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></Icon>,
+            TrendingDown: (props) => <Icon {...props}><polyline points="23 18 13.5 8.5 8.5 13.5 1 6"/><polyline points="17 18 23 18 23 12"/></Icon>,
+            Coins: (props) => <Icon {...props}><circle cx="8" cy="8" r="6"/><path d="M18.09 10.37A6 6 0 1 1 10.34 18"/><path d="M7 6h1v4"/><path d="m16.71 13.88.7.71-2.82 2.82"/></Icon>,
+            Wallet: (props) => <Icon {...props}><path d="M20 12V8H6a2 2 0 0 1-2-2c0-1.1.9-2 2-2h12v4"/><path d="M4 6v12c0 1.1.9 2 2 2h14v-4"/><path d="M18 12a2 2 0 0 0-2 2c0 1.1.9 2 2 2h4v-4h-4z"/></Icon>,
+            FileText: (props) => <Icon {...props}><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></Icon>,
+            Download: (props) => <Icon {...props}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></Icon>,
+            Briefcase: (props) => <Icon {...props}><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></Icon>,
+            LayoutGrid: (props) => <Icon {...props}><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></Icon>
+        };
+
+        const COLORS = {
+            'Renta Fija': '#2563EB',
+            'Renta Variable': '#059669',
+            'Commodities': '#D97706',
+            'Cash': '#475569',
+            'Sin Clasificar': '#E2E8F0'
+        };
+
+        const BG_COLORS = {
+            'Renta Fija': 'bg-blue-50',
+            'Renta Variable': 'bg-emerald-50',
+            'Commodities': 'bg-amber-50',
+            'Cash': 'bg-slate-100',
+            'Sin Clasificar': 'bg-slate-50'
+        };
+
+        const TEXT_COLORS = {
+            'Renta Fija': 'text-blue-700',
+            'Renta Variable': 'text-emerald-700',
+            'Commodities': 'text-amber-700',
+            'Cash': 'text-slate-700',
+            'Sin Clasificar': 'text-slate-400'
+        };
+
+        const CATEGORIES = ['Renta Fija', 'Renta Variable', 'Commodities', 'Cash', 'Sin Clasificar'];
+        const INITIAL_DATA = [];
+
+        // --- HELPERS ---
+        const getToday = () => new Date().toISOString().split('T')[0];
+        const getYesterday = () => { const d = new Date(); d.setDate(d.getDate() - 1); return d.toISOString().split('T')[0]; };
+        const getStartOfYear = () => `${new Date().getFullYear()}-01-01`;
+        const getStartOfMonth = () => `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-01`;
+        const getLastDayOfPreviousYear = () => { const d = new Date(); return `${d.getFullYear() - 1}-12-31`; };
+        const getLastBusinessDayOfPreviousMonth = () => {
+            const d = new Date(); d.setDate(1); d.setHours(-24);
+            if (d.getDay() === 6) d.setDate(d.getDate() - 1); else if (d.getDay() === 0) d.setDate(d.getDate() - 2);
+            return d.toISOString().split('T')[0];
+        };
+
+        const createInitialPeriods = () => [
+            { id: 0, name: 'Diario (Variación Hoy)', startDate: getYesterday(), initial: 0, movements: 0, type: 'daily' },
+            { id: 1, name: 'MTD (Mes Actual)', startDate: getLastBusinessDayOfPreviousMonth(), initial: 0, movements: 0, type: 'mtd' },
+            { id: 2, name: 'YTD (Año Actual)', startDate: getLastDayOfPreviousYear(), initial: 0, movements: 0, type: 'ytd' },
+            { id: 3, name: 'Histórico (Total)', startDate: '2025-09-28', initial: 0, movements: 0, type: 'hist' },
+        ];
+
+        const formatCurrency = (val) => new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'USD', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(val || 0);
+        const formatNumber = (val) => new Intl.NumberFormat('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(val || 0);
+
+        // --- COMPONENTES UI ---
+        const Card = ({ children, className = "", noOverflow = false }) => (
+            <div className={`bg-white rounded-xl shadow-md border border-slate-200 card-container ${noOverflow ? 'overflow-hidden' : ''} ${className}`}>
+                {children}
+            </div>
+        );
+
+        const EditableMetricInput = ({ value, onChange, placeholder = "0,00" }) => (
+            <div className="relative group w-full">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs pointer-events-none font-bold">$</span>
+                <input
+                    type="number"
+                    value={value === 0 ? '' : value}
+                    onChange={(e) => onChange(parseFloat(e.target.value) || 0)}
+                    placeholder={placeholder}
+                    className="w-full pl-6 pr-3 py-2 text-right text-sm font-mono border border-slate-200 rounded-lg focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 outline-none bg-white hover:border-slate-300 transition-all text-slate-700 font-bold placeholder:text-slate-300 shadow-sm"
+                />
+            </div>
+        );
+
+        const EditableDateInput = ({ value, onChange }) => (
+            <div className="relative group w-full">
+                <input
+                    type="date"
+                    value={value || ''}
+                    onChange={(e) => onChange(e.target.value)}
+                    className="w-full px-3 py-2 text-sm font-mono border border-slate-200 rounded-lg focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 outline-none bg-white hover:border-slate-300 transition-all text-slate-600 shadow-sm"
+                />
+            </div>
+        );
+
+        // --- APP ---
+        function PortfolioClassifier() {
+            const [activeTab, setActiveTab] = useState('conservadora');
+            
+            const [portfolios, setPortfolios] = useState({
+                conservadora: { assets: [], periods: createInitialPeriods() },
+                moderada: { assets: [], periods: createInitialPeriods() },
+                agresiva: { assets: [], periods: createInitialPeriods() }
+            });
+
+            const [selectedIds, setSelectedIds] = useState(new Set());
+            const [loading, setLoading] = useState(false);
+            const fileInputRef = useRef(null);
+            const performanceRef = useRef(null);
+            const compositionRef = useRef(null);
+            const comparisonRef = useRef(null);
+
+            const currentAssets = portfolios[activeTab].assets;
+            const currentPeriods = portfolios[activeTab].periods;
+
+            useEffect(() => {
+                setSelectedIds(new Set());
+            }, [activeTab]);
+
+            const stats = useMemo(() => {
+                const totalCurrentValue = currentAssets.reduce((sum, asset) => sum + asset.amount, 0);
+                const byCategory = CATEGORIES.reduce((acc, cat) => { acc[cat] = 0; return acc; }, {});
+                currentAssets.forEach(asset => { byCategory[asset.category] += asset.amount; });
+
+                const chartData = Object.keys(byCategory)
+                    .filter(key => byCategory[key] > 0)
+                    .map(key => ({
+                        name: key, value: byCategory[key], percentage: totalCurrentValue ? (byCategory[key] / totalCurrentValue) * 100 : 0
+                    }))
+                    .sort((a, b) => b.value - a.value);
+
+                const calculatedPeriods = currentPeriods.map(period => {
+                    const invested = (period.initial || 0) + (period.movements || 0);
+                    const result = totalCurrentValue - invested;
+                    let yieldPct = 0;
+                    if (invested !== 0) yieldPct = (result / Math.abs(invested)) * 100;
+                    else if (result > 0) yieldPct = 100;
+                    return { ...period, final: totalCurrentValue, result, yieldPct };
+                });
+
+                return { totalCurrentValue, byCategory, chartData, calculatedPeriods };
+            }, [currentAssets, currentPeriods]);
+
+            const comparisonStats = useMemo(() => {
+                const keys = Object.keys(portfolios);
+                
+                const compositionData = keys.map(key => {
+                    const assets = portfolios[key].assets;
+                    const total = assets.reduce((sum, a) => sum + a.amount, 0);
+                    
+                    const distribution = CATEGORIES.reduce((acc, cat) => {
+                        const catTotal = assets.filter(a => a.category === cat).reduce((s, a) => s + a.amount, 0);
+                        acc[cat] = total > 0 ? (catTotal / total) * 100 : 0;
+                        return acc;
+                    }, {});
+
+                    return {
+                        name: key.charAt(0).toUpperCase() + key.slice(1),
+                        total,
+                        ...distribution
+                    };
+                });
+
+                const yieldPeriodNames = portfolios.conservadora.periods.map(p => p.name);
+                
+                const yieldData = yieldPeriodNames.map((periodName, index) => {
+                    const dataPoint = { name: periodName.split('(')[0].trim() };
+                    
+                    keys.forEach(key => {
+                        const pData = portfolios[key].periods[index];
+                        const assets = portfolios[key].assets;
+                        const totalVal = assets.reduce((sum, a) => sum + a.amount, 0);
+                        
+                        const invested = (pData.initial || 0) + (pData.movements || 0);
+                        const result = totalVal - invested;
+                        let yieldPct = 0;
+                        if (invested !== 0) yieldPct = (result / Math.abs(invested)) * 100;
+                        
+                        const niceName = key.charAt(0).toUpperCase() + key.slice(1);
+                        dataPoint[niceName] = parseFloat(yieldPct.toFixed(2));
+                    });
+                    
+                    return dataPoint;
+                });
+
+                return { compositionData, yieldData };
+            }, [portfolios]);
+
+            const updateCurrentPortfolio = (key, value) => {
+                setPortfolios(prev => ({
+                    ...prev,
+                    [activeTab]: {
+                        ...prev[activeTab],
+                        [key]: value
+                    }
+                }));
+            };
+
+            const handlePeriodChange = (id, field, value) => {
+                const newPeriods = currentPeriods.map(p => p.id === id ? { ...p, [field]: value } : p);
+                updateCurrentPortfolio('periods', newPeriods);
+            };
+
+            const handleCategoryChange = (id, newCategory) => {
+                const newAssets = currentAssets.map(asset => asset.id === id ? { ...asset, category: newCategory } : asset);
+                updateCurrentPortfolio('assets', newAssets);
+                if(selectedIds.has(id)) {
+                    setSelectedIds(prev => {
+                        const next = new Set(prev);
+                        next.delete(id);
+                        return next;
+                    });
+                }
+            };
+
+            const toggleSelect = (id) => {
+                const newSelected = new Set(selectedIds);
+                if (newSelected.has(id)) newSelected.delete(id); else newSelected.add(id);
+                setSelectedIds(newSelected);
+            };
+
+            const toggleSelectAll = () => {
+                const unclassified = currentAssets.filter(a => a.category === 'Sin Clasificar');
+                const allUnclassifiedSelected = unclassified.length > 0 && unclassified.every(a => selectedIds.has(a.id));
+                if (allUnclassifiedSelected) setSelectedIds(new Set());
+                else {
+                    const newIds = new Set(selectedIds);
+                    unclassified.forEach(a => newIds.add(a.id));
+                    setSelectedIds(newIds);
+                }
+            };
+
+            const handleBulkCategorize = (category) => {
+                const newAssets = currentAssets.map(asset => selectedIds.has(asset.id) ? { ...asset, category } : asset);
+                updateCurrentPortfolio('assets', newAssets);
+                setSelectedIds(new Set());
+            };
+
+            const scrollToPerformance = () => performanceRef.current?.scrollIntoView({ behavior: 'smooth' });
+            const scrollToComposition = () => compositionRef.current?.scrollIntoView({ behavior: 'smooth' });
+            const scrollToComparison = () => comparisonRef.current?.scrollIntoView({ behavior: 'smooth' });
+
+            const handleExportCSV = () => {
+                if (currentAssets.length === 0) return alert("No hay datos para exportar en esta cartera.");
+
+                let csv = "\uFEFF"; 
+                csv += `REPORTE SGA - ${activeTab.toUpperCase()}\n`;
+                csv += `Fecha reporte,${getToday()}\n\n`;
+                
+                csv += "CALCULADORA DE RENTABILIDAD\n";
+                csv += "Periodo,Fecha Desde,Saldo Inicial,Movimientos Netos,Saldo Final,Resultado ($),Rendimiento (%)\n";
+                stats.calculatedPeriods.forEach(p => {
+                    csv += `"${p.name}","${p.startDate || '-'}","${p.initial}","${p.movements}","${p.final}","${p.result.toFixed(2)}","${p.yieldPct.toFixed(2)}%"\n`;
+                });
+
+                csv += "\n\nINVENTARIO DETALLADO DE ACTIVOS\n";
+                csv += "Tipo,Activo,Moneda,Precio,Cantidad,Valor Total USD,Categoría\n";
+                currentAssets.forEach(a => {
+                    const safeName = a.name.replace(/"/g, '""');
+                    csv += `"${a.type}","${safeName}","${a.currency}","${a.price}","${a.quantity}","${a.amount}","${a.category}"\n`;
+                });
+
+                const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement("a");
+                link.setAttribute("href", url);
+                link.setAttribute("download", `SGA_${activeTab}_${getToday()}.csv`);
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            };
+
+            const handlePrint = () => {
+                window.print();
+            };
+
+            const handleFileUpload = (event) => {
+                const file = event.target.files[0];
+                if (!file) return;
+                setLoading(true);
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    try {
+                        const text = e.target.result;
+                        const rows = text.split('\n');
+                        const newAssets = [];
+                        
+                        const headerRow = rows.find(r => r.toUpperCase().includes('DETALLE') || r.toUpperCase().includes('CATEGOR')) || rows[0];
+                        const isSemicolon = headerRow && headerRow.includes(';');
+                        const separator = isSemicolon ? ';' : ',';
+                        
+                        let headerIndex = -1;
+                        let colMap = { type: -1, name: -1, currency: -1, price: -1, quantity: -1, amount: -1 };
+
+                        for (let i = 0; i < rows.length; i++) {
+                            const line = rows[i].toUpperCase();
+                            if (line.includes('DETALLE') || line.includes('CATEGOR')) {
+                                headerIndex = i;
+                                const cols = rows[i].split(separator).map(c => c.trim().toUpperCase().replace(/"/g, ''));
+                                cols.forEach((col, index) => {
+                                    if (col.includes('CATEGOR')) colMap.type = index;
+                                    if (col.includes('DETALLE') || col.includes('ACTIVO')) colMap.name = index;
+                                    if (col.includes('MONEDA')) colMap.currency = index;
+                                    if (col.includes('COTIZA') || col.includes('PRECIO')) colMap.price = index;
+                                    if (col === 'CANTIDAD') colMap.quantity = index;
+                                    if (col.includes('MONTO') || col.includes('VALOR')) colMap.amount = index;
+                                });
+                                break;
+                            }
+                        }
+                        if (headerIndex === -1) { headerIndex = 0; colMap = { type: 0, name: 1, currency: 2, price: 3, quantity: 4, amount: 5 }; }
+                        
+                        let lastType = 'General';
+                        for (let i = headerIndex + 1; i < rows.length; i++) {
+                            const rowRaw = rows[i].trim();
+                            if (!rowRaw) continue;
+                            const cols = rowRaw.split(separator);
+                            if (cols.length < 3) continue;
+                            
+                            let typeRaw = cols[colMap.type]?.trim().replace(/"/g, '');
+                            let name = cols[colMap.name]?.trim().replace(/"/g, '');
+                            let currency = cols[colMap.currency]?.trim().replace(/"/g, '');
+                            
+                            const cleanNumber = (val) => {
+                                if (!val) return 0;
+                                let clean = val.trim().replace(/[A-Za-z$%\s]/g, '');
+                                if (isSemicolon) clean = clean.replace(/\./g, '').replace(',', '.');
+                                else clean = clean.replace(/,/g, '');
+                                return parseFloat(clean) || 0;
+                            };
+                            const price = cleanNumber(cols[colMap.price]);
+                            const quantity = cleanNumber(cols[colMap.quantity]);
+                            const amount = cleanNumber(cols[colMap.amount]);
+
+                            if (typeRaw && typeRaw.length > 1) lastType = typeRaw;
+                            if (!name || name.toUpperCase().includes('TOTAL') || (amount === 0 && price === 0)) continue;
+                            if (name.includes('Subtotal') || name.includes('Cartera')) continue;
+
+                            newAssets.push({
+                                id: i, type: lastType, name, currency: currency || '-', price, quantity, amount, category: 'Sin Clasificar'
+                            });
+                        }
+                        updateCurrentPortfolio('assets', newAssets);
+                        setSelectedIds(new Set());
+                    } catch (error) { alert("Error al leer archivo: " + error.message); }
+                    setLoading(false);
+                    if(fileInputRef.current) fileInputRef.current.value = '';
+                };
+                reader.readAsText(file);
+            };
+            const triggerFileInput = () => fileInputRef.current.click();
+
+            if (!PieChart || !BarChart) return <div className="text-center p-10 text-red-500">Error: Recharts no pudo cargarse. Intenta recargar.</div>;
+
+            return (
+                <div className="max-w-[1600px] mx-auto space-y-6 p-4">
+                    {/* HEADER CON TABS */}
+                    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden no-print">
+                        <div className="p-6 pb-0 flex flex-col md:flex-row justify-between items-start gap-6">
+                            <div className="flex items-center gap-4">
+                                <div className="bg-indigo-600 p-3 rounded-xl shadow-md transform rotate-3">
+                                    <Icons.Briefcase className="text-white" size={32} />
+                                </div>
+                                <div>
+                                    <h1 className="text-2xl font-extrabold text-slate-900 tracking-tight">SGA</h1>
+                                    <p className="text-slate-500 font-medium text-sm">Sistema de Gestión de Activos</p>
+                                </div>
+                            </div>
+                            
+                            <div className="flex items-center gap-4 flex-wrap justify-end">
+                                <input type="file" accept=".csv" ref={fileInputRef} onChange={handleFileUpload} className="hidden" />
+                                <button onClick={triggerFileInput} disabled={loading} className="flex items-center gap-2 px-4 py-2 bg-indigo-50 border border-indigo-100 hover:bg-indigo-100 text-indigo-700 rounded-lg font-bold shadow-sm transition-all text-sm">
+                                    {loading ? <Icons.RefreshCw className="animate-spin text-indigo-600" size={18} /> : <Icons.Upload className="text-indigo-600" size={18} />}
+                                    {loading ? 'Leyendo...' : `Cargar CSV (${activeTab})`}
+                                </button>
+                                
+                                {currentAssets.length > 0 && (
+                                    <>
+                                        <div className="h-8 w-px bg-slate-200 mx-1 hidden md:block"></div>
+                                        <button onClick={handleExportCSV} className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-lg font-bold shadow-sm transition-all text-sm">
+                                            <Icons.Download size={18} /> Excel
+                                        </button>
+                                        <button onClick={handlePrint} className="flex items-center gap-2 px-4 py-2 bg-slate-800 border border-slate-900 hover:bg-slate-700 text-white rounded-lg font-bold shadow-sm transition-all text-sm">
+                                            <Icons.FileText size={18} /> Imprimir
+                                        </button>
+                                    </>
+                                )}
+                            </div>
+                        </div>
+
+                        <div className="flex border-b border-slate-200 mt-6 px-6 gap-8">
+                            {['conservadora', 'moderada', 'agresiva'].map(tab => (
+                                <button
+                                    key={tab}
+                                    onClick={() => setActiveTab(tab)}
+                                    className={`pb-4 text-sm font-bold uppercase tracking-wide border-b-2 transition-colors ${
+                                        activeTab === tab 
+                                        ? 'border-indigo-600 text-indigo-600' 
+                                        : 'border-transparent text-slate-400 hover:text-slate-600 hover:border-slate-300'
+                                    }`}
+                                >
+                                    Cartera {tab}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+
+                    {/* BARRA DE TOTALES */}
+                    <div className="bg-slate-900 text-white p-4 rounded-xl flex justify-between items-center shadow-lg no-print">
+                        <div className="flex items-center gap-2">
+                            <span className="bg-indigo-500 px-2 py-1 rounded text-xs font-bold uppercase">Activa</span>
+                            <span className="font-bold capitalize">Cartera {activeTab}</span>
+                        </div>
+                        <div className="flex items-center gap-6">
+                            <button onClick={scrollToComparison} className="text-slate-400 hover:text-white text-xs font-bold uppercase tracking-wider flex items-center gap-1 transition-colors">
+                                <Icons.LayoutGrid size={14}/> Ver Comparativa Global
+                            </button>
+                            <div className="text-right">
+                                <span className="text-xs text-slate-400 uppercase font-bold tracking-wider block">Patrimonio Total</span>
+                                <span className="text-2xl font-black leading-none">{formatCurrency(stats.totalCurrentValue)}</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="hidden print:block mb-6 border-b pb-4">
+                        <h1 className="text-3xl font-bold text-slate-900">SGA - Cartera {activeTab.toUpperCase()}</h1>
+                        <p className="text-slate-500">Reporte generado el {getToday()}</p>
+                    </div>
+
+                    {/* TABLA INVENTARIO (Ahora print:block) */}
+                    <Card className="flex flex-col shadow-lg border-0 ring-1 ring-slate-200 print:block" noOverflow={true}>
+                        <div className="p-5 border-b border-slate-100 bg-white flex flex-col sm:flex-row justify-between items-center gap-4 sticky top-0 z-50 no-print">
+                            <div className="flex items-center gap-3">
+                                <div className="bg-slate-100 p-2 rounded-lg text-slate-500"><Icons.List size={20} /></div>
+                                <h2 className="font-bold text-lg text-slate-800">Inventario de Posiciones</h2>
+                                <span className="bg-indigo-50 text-indigo-700 text-xs font-bold px-3 py-1 rounded-full">{currentAssets.length} items</span>
+                            </div>
+                            <div className="flex items-center gap-4">
+                                {selectedIds.size > 0 && (
+                                    <div className="flex items-center gap-3 bg-indigo-50 px-4 py-2 rounded-lg border border-indigo-100 animate-in fade-in slide-in-from-right-4">
+                                        <span className="text-sm font-semibold text-indigo-700">{selectedIds.size} seleccionados</span>
+                                        <div className="relative group z-50">
+                                            <button className="text-indigo-700 text-sm font-bold flex items-center gap-1 hover:underline">Clasificar <Icons.ChevronDown size={16} /></button>
+                                            <div className="absolute right-0 top-full mt-2 w-48 bg-white rounded-xl shadow-xl border border-slate-100 hidden group-hover:block z-50">
+                                                {CATEGORIES.filter(c => c !== 'Sin Clasificar').map(cat => (
+                                                    <button key={cat} onClick={() => handleBulkCategorize(cat)} className="w-full text-left px-4 py-3 text-sm hover:bg-slate-50 text-slate-700 flex items-center gap-2 border-b border-slate-50 last:border-0">
+                                                        <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: COLORS[cat] }}></span> {cat}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+                                <button onClick={scrollToComposition} className="text-slate-400 hover:text-indigo-600 hidden sm:flex items-center gap-1 text-sm font-medium transition-colors">
+                                    Ver Análisis <Icons.ArrowDown size={16} />
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-left border-collapse">
+                                <thead className="sticky-header">
+                                    <tr>
+                                        <th className="p-4 w-10 text-center no-print">
+                                            <input 
+                                                type="checkbox" 
+                                                className="cursor-pointer" 
+                                                checked={currentAssets.length > 0 && currentAssets.some(a => a.category === 'Sin Clasificar') && currentAssets.filter(a => a.category === 'Sin Clasificar').every(a => selectedIds.has(a.id))} 
+                                                onChange={toggleSelectAll} 
+                                                disabled={!currentAssets.some(a => a.category === 'Sin Clasificar')}
+                                            />
+                                        </th>
+                                        <th className="px-3 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider">Tipo</th>
+                                        <th className="px-3 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider min-w-[300px]">Activo</th>
+                                        <th className="px-3 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider text-right w-32">Precio</th>
+                                        <th className="px-3 py-3 text-xs font-bold text-slate-500 uppercase tracking-wider text-right w-32">Cantidad</th>
+                                        <th className="px-3 py-3 text-xs font-bold text-slate-800 uppercase tracking-wider text-right w-40 bg-slate-100/50">Valor Total</th>
+                                        <th className="px-4 py-3 text-xs font-bold text-indigo-600 uppercase tracking-wider w-48 pl-6">Categoría</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100 bg-white">
+                                    {currentAssets.map((asset) => (
+                                        <tr key={asset.id} className={`group hover:bg-slate-50 ${selectedIds.has(asset.id) ? 'bg-indigo-50/60' : ''} print:break-inside-avoid`}>
+                                            <td className="p-4 text-center no-print">
+                                                {asset.category === 'Sin Clasificar' ? (
+                                                    <input 
+                                                        type="checkbox" 
+                                                        className="cursor-pointer" 
+                                                        checked={selectedIds.has(asset.id)} 
+                                                        onChange={() => toggleSelect(asset.id)} 
+                                                    />
+                                                ) : (
+                                                    <div className="flex justify-center text-emerald-500">
+                                                        <Icons.Check size={18} />
+                                                    </div>
+                                                )}
+                                            </td>
+                                            <td className="px-3 py-3 align-middle"><span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-slate-100 text-slate-600 border border-slate-200">{asset.type || '-'}</span></td>
+                                            <td className="px-3 py-3 align-middle">
+                                                <div className="flex items-center gap-3">
+                                                    <div className={`p-1.5 rounded-full ${asset.type === 'Moneda' ? 'bg-amber-100 text-amber-600' : 'bg-blue-50 text-blue-500'}`}>
+                                                        {asset.type === 'Moneda' ? <Icons.Coins size={14} /> : <Icons.Wallet size={14} />}
+                                                    </div>
+                                                    <div><span className="text-sm font-semibold text-slate-900 block truncate max-w-[400px]" title={asset.name}>{asset.name}</span><span className="text-[10px] text-slate-400 font-mono">{asset.currency} | {formatNumber(asset.price)}</span></div>
+                                                </div>
+                                            </td>
+                                            <td className="px-3 py-3 text-right font-mono text-sm text-slate-600 align-middle">{formatNumber(asset.price)}</td>
+                                            <td className="px-3 py-3 text-right font-mono text-sm text-slate-600 align-middle">{formatNumber(asset.quantity)}</td>
+                                            <td className="px-3 py-3 text-right font-mono text-sm font-bold text-slate-900 bg-slate-50/30 align-middle">{formatCurrency(asset.amount)}</td>
+                                            <td className="px-4 py-3 align-middle">
+                                                <div className="no-print relative z-10">
+                                                    <select value={asset.category} onChange={(e) => handleCategoryChange(asset.id, e.target.value)}
+                                                        className={`block w-full rounded-lg border-0 py-1.5 pl-2 pr-8 text-xs font-bold cursor-pointer ring-1 ring-inset focus:ring-2 focus:ring-indigo-600 ${asset.category === 'Sin Clasificar' ? 'text-slate-400 bg-white ring-slate-200' : `${BG_COLORS[asset.category]} ${TEXT_COLORS[asset.category]} ring-transparent`}`}>
+                                                        {CATEGORIES.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+                                                    </select>
+                                                </div>
+                                                <div className="hidden print:block text-xs font-bold">
+                                                    {asset.category}
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                    {currentAssets.length === 0 && <tr><td colSpan="7" className="p-16 text-center text-slate-400"><p>Carga el CSV para la cartera <strong>{activeTab.toUpperCase()}</strong></p></td></tr>}
+                                </tbody>
+                            </table>
+                        </div>
+                    </Card>
+
+                    {/* DISTRIBUCIÓN */}
+                    <div ref={compositionRef} className="grid grid-cols-1 lg:grid-cols-12 gap-8 print:mt-8">
+                        <div className="lg:col-span-5 flex flex-col gap-4">
+                            <div className="flex items-center gap-2">
+                                <Icons.PieChart className="text-indigo-600" size={24}/>
+                                <h2 className="text-xl font-bold text-slate-800">Distribución de Activos</h2>
+                            </div>
+                            <Card className="p-8 h-full min-h-[380px] flex items-center justify-center relative bg-gradient-to-br from-white to-slate-50">
+                                <div className="h-72 w-full relative">
+                                    <ResponsiveContainer width="100%" height="100%">
+                                        <PieChart>
+                                            <Pie 
+                                                data={stats.chartData} 
+                                                cx="50%" 
+                                                cy="50%" 
+                                                innerRadius={85} 
+                                                outerRadius={115} 
+                                                paddingAngle={4} 
+                                                dataKey="value" 
+                                                stroke="none" 
+                                                cornerRadius={6}
+                                                isAnimationActive={false}
+                                            >
+                                                {stats.chartData.map((entry, index) => <Cell key={`cell-${index}`} fill={COLORS[entry.name]} />)}
+                                            </Pie>
+                                            <Tooltip formatter={(value) => formatCurrency(value)} contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}/>
+                                        </PieChart>
+                                    </ResponsiveContainer>
+                                    <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                                        <span className="text-xs text-slate-400 font-bold uppercase tracking-wider mb-1">Total</span>
+                                        <span className="text-3xl font-black text-slate-800 tracking-tight">{formatCurrency(stats.totalCurrentValue)}</span>
+                                        <span className="text-[10px] text-slate-400 mt-1">{currentAssets.length} posiciones</span>
+                                    </div>
+                                </div>
+                            </Card>
+                        </div>
+                        <div className="lg:col-span-7 flex flex-col gap-4">
+                            <div className="flex items-center gap-2">
+                                <Icons.BarChart3 className="text-slate-500" size={24}/>
+                                <h2 className="text-xl font-bold text-slate-800">Detalle por Estrategia</h2>
+                            </div>
+                            <Card className="p-6 h-full min-h-[380px] bg-white">
+                                <div className="space-y-5">
+                                    {stats.chartData.map((item) => (
+                                        <div key={item.name} className="group">
+                                            <div className="flex justify-between items-end mb-2">
+                                                <div className="flex items-center gap-3">
+                                                    <div className={`p-2 rounded-lg ${BG_COLORS[item.name]}`}>
+                                                        <div className="w-3 h-3 rounded-full shadow-sm" style={{ backgroundColor: COLORS[item.name] }}></div>
+                                                    </div>
+                                                    <div>
+                                                        <span className="text-sm font-bold text-slate-700 block">{item.name}</span>
+                                                        <span className="text-xs text-slate-400 font-medium">{item.percentage.toFixed(2)}% del portafolio</span>
+                                                    </div>
+                                                </div>
+                                                <div className="text-right"><span className="text-base font-bold text-slate-900 block font-mono">{formatCurrency(item.value)}</span></div>
+                                            </div>
+                                            <div className="w-full bg-slate-100 rounded-full h-3 overflow-hidden shadow-inner">
+                                                <div className="h-full rounded-full transition-all duration-1000 ease-out" style={{ width: `${item.percentage}%`, backgroundColor: COLORS[item.name] }}></div>
+                                            </div>
+                                        </div>
+                                    ))}
+                                    {stats.chartData.length === 0 && <div className="flex flex-col items-center justify-center h-64 text-slate-400 opacity-60">
+                                        <Icons.PieChart className="mb-2" size={48}/>
+                                        <p className="text-sm italic">Clasifica tus activos para ver el análisis.</p></div>}
+                                </div>
+                            </Card>
+                        </div>
+                    </div>
+
+                    {/* CALCULADORA */}
+                    <div ref={performanceRef} className="w-full pb-12 pt-4 border-t border-slate-200">
+                        <div className="flex items-center justify-between mb-6">
+                            <div className="flex items-center gap-3">
+                                <div className="bg-emerald-100 p-2 rounded-lg text-emerald-600"><Icons.Calculator size={24}/></div>
+                                <div>
+                                    <h2 className="text-xl font-bold text-slate-800">Calculadora de Rentabilidad</h2>
+                                    <p className="text-sm text-slate-500">Ingresa saldos iniciales y movimientos para calcular retorno</p>
+                                </div>
+                            </div>
+                        </div>
+                        <Card className="p-0 border-0 shadow-xl ring-1 ring-slate-200 overflow-visible bg-white">
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-left border-collapse">
+                                    <thead>
+                                        <tr className="bg-slate-900 text-white">
+                                            <th className="px-6 py-5 text-xs font-bold uppercase tracking-wider rounded-tl-xl w-[20%]">Periodo de Análisis</th>
+                                            <th className="px-4 py-5 text-xs font-bold uppercase tracking-wider w-[15%]">Fecha Desde</th>
+                                            <th className="px-4 py-5 text-xs font-bold uppercase tracking-wider text-right w-[15%]">Saldo Inicial</th>
+                                            <th className="px-4 py-5 text-xs font-bold uppercase tracking-wider text-right w-[15%]">Movimientos Netos</th>
+                                            <th className="px-4 py-5 text-xs font-bold uppercase tracking-wider text-right bg-slate-800 w-[15%]">Saldo Final</th>
+                                            <th className="px-4 py-5 text-xs font-bold uppercase tracking-wider text-right w-[10%]">Resultado</th>
+                                            <th className="px-6 py-5 text-xs font-bold uppercase tracking-wider text-right rounded-tr-xl w-[10%]">% Rend.</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="bg-white divide-y divide-slate-100">
+                                        {stats.calculatedPeriods.map((period) => (
+                                            <tr key={period.id} className="hover:bg-slate-50 transition-colors group">
+                                                <td className="px-6 py-4 font-bold text-slate-700 text-sm align-middle border-l-4 border-transparent hover:border-indigo-500 transition-all">
+                                                    {period.name}
+                                                    {period.type === 'daily' && <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">HOY</span>}
+                                                </td>
+                                                <td className="px-4 py-4 align-middle">
+                                                    <EditableDateInput value={period.startDate} onChange={(val) => handlePeriodChange(period.id, 'startDate', val)} />
+                                                </td>
+                                                <td className="px-4 py-4 align-middle">
+                                                    <EditableMetricInput value={period.initial} onChange={(val) => handlePeriodChange(period.id, 'initial', val)} placeholder="Inicial" />
+                                                </td>
+                                                <td className="px-4 py-4 align-middle">
+                                                    <EditableMetricInput value={period.movements} onChange={(val) => handlePeriodChange(period.id, 'movements', val)} placeholder="Netos" />
+                                                </td>
+                                                <td className="px-4 py-4 text-right font-mono text-sm font-bold text-slate-800 bg-slate-50/80 align-middle">{formatCurrency(period.final)}</td>
+                                                <td className="px-4 py-4 text-right align-middle">
+                                                    <span className={`font-mono font-bold text-sm ${period.result >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{period.result > 0 ? '+' : ''}{formatCurrency(period.result)}</span>
+                                                </td>
+                                                <td className="px-6 py-4 text-right align-middle">
+                                                    {(period.initial > 0 || period.movements !== 0 || period.result !== 0) ? (
+                                                        <span className={`inline-flex items-center px-3 py-1.5 rounded-lg text-sm font-bold shadow-sm ${period.yieldPct >= 0 ? 'bg-emerald-100 text-emerald-700 ring-1 ring-emerald-200' : 'bg-rose-100 text-rose-700 ring-1 ring-rose-200'}`}>
+                                                            {period.yieldPct > 0 ? <Icons.TrendingUp className="mr-1.5"/> : <Icons.TrendingDown className="mr-1.5"/>}
+                                                            {period.yieldPct.toFixed(2)}%
+                                                        </span>
+                                                    ) : <span className="text-slate-300 font-mono">-</span>}
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </Card>
+                    </div>
+
+                    {/* COMPARACIÓN DE ESTRATEGIAS (Final de página, con salto si necesario) */}
+                    <div ref={comparisonRef} className="w-full pb-12 pt-4 border-t border-slate-200 page-break-before">
+                        <div className="flex items-center gap-3 mb-6">
+                             <div className="bg-indigo-100 p-2 rounded-lg text-indigo-600"><Icons.BarChart3 size={24}/></div>
+                             <h2 className="text-xl font-bold text-slate-800">Comparación de Estrategias</h2>
+                        </div>
+                        
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            {/* Gráfico 1: Composición Relativa (100% Stacked) */}
+                            <Card className="p-6 border border-slate-200">
+                                <h3 className="font-bold text-slate-700 mb-4 text-sm uppercase tracking-wider">Composición de Activos (%)</h3>
+                                <div className="h-64 print-chart-height">
+                                    <ResponsiveContainer width="100%" height="100%">
+                                        <BarChart 
+                                            data={comparisonStats.compositionData} 
+                                            margin={{ top: 10, right: 30, left: 0, bottom: 0 }}
+                                            layout="vertical" // Barras horizontales para mejor lectura de nombres
+                                        >
+                                            <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#e2e8f0" />
+                                            <XAxis type="number" hide />
+                                            <YAxis dataKey="name" type="category" axisLine={false} tickLine={false} tick={{fill: '#475569', fontSize: 12, fontWeight: 600}} width={100} />
+                                            <Tooltip 
+                                                cursor={{fill: '#f1f5f9'}}
+                                                contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}
+                                                formatter={(val) => `${val.toFixed(1)}%`}
+                                            />
+                                            <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: '11px', paddingTop: '10px' }} />
+                                            {CATEGORIES.map((cat, index) => (
+                                                <Bar key={cat} dataKey={cat} stackId="a" fill={Object.values(COLORS)[index]} isAnimationActive={false} />
+                                            ))}
+                                        </BarChart>
+                                    </ResponsiveContainer>
+                                </div>
+                            </Card>
+
+                            {/* Gráfico 2: Comparación de Rendimientos */}
+                            <Card className="p-6 border border-slate-200">
+                                <h3 className="font-bold text-slate-700 mb-4 text-sm uppercase tracking-wider">Evolución de Rendimientos (%)</h3>
+                                <div className="h-64 print-chart-height">
+                                    <ResponsiveContainer width="100%" height="100%">
+                                        <BarChart data={comparisonStats.yieldData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                                            <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#64748b', fontSize: 12}} dy={10} />
+                                            <YAxis axisLine={false} tickLine={false} tick={{fill: '#64748b', fontSize: 11}} />
+                                            <Tooltip 
+                                                cursor={{fill: '#f1f5f9'}}
+                                                contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}
+                                                formatter={(val) => `${val.toFixed(2)}%`}
+                                            />
+                                            <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: '11px', paddingTop: '10px' }} />
+                                            <Bar dataKey="Conservadora" fill="#2563EB" radius={[4, 4, 0, 0]} isAnimationActive={false} />
+                                            <Bar dataKey="Moderada" fill="#059669" radius={[4, 4, 0, 0]} isAnimationActive={false} />
+                                            <Bar dataKey="Agresiva" fill="#D97706" radius={[4, 4, 0, 0]} isAnimationActive={false} />
+                                        </BarChart>
+                                    </ResponsiveContainer>
+                                </div>
+                            </Card>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<PortfolioClassifier />);
+    </script>
+</body>
+</html>
